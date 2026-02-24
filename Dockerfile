@@ -1,9 +1,18 @@
-FROM alpine:3
+FROM node:18-slim
 
-RUN apk add --no-cache bash ffmpeg
+# Install FFmpeg inside the container
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir /usr/src/app -p
-WORKDIR /usr/src/app/
+WORKDIR /app
 
-ADD . /usr/src/app/
-CMD ./stream.sh
+# Copy package files and install
+COPY package*.json ./
+RUN npm install
+
+# Copy the rest of your files (including your video.mp4)
+COPY . .
+
+# Match the port in index.js
+EXPOSE 8080
+
+CMD ["npm", "start"]
