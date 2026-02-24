@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stream Dashboard</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #121212; color: white; padding: 50px; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 10px; display: inline-block; min-width: 300px; border: 1px solid #333; }
+        .status { font-size: 24px; font-weight: bold; }
+        .live { color: #4CAF50; }
+        .offline { color: #f44336; }
+        .dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .dot-live { background-color: #4CAF50; box-shadow: 0 0 10px #4CAF50; }
+        .dot-offline { background-color: #f44336; }
+    </style>
+</head>
+<body>
+    <h1>YouTube Radio Monitor</h1>
+    <div class="card">
+        <p>Status: <span id="statusText" class="status">Checking...</span></p>
+        <p>Uptime: <span id="uptime">0</span> seconds</p>
+        <p style="font-size: 12px; color: #666;">Last Error: <span id="error">None</span></p>
+    </div>
+
+    <script>
+        function updateStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusText = document.getElementById('statusText');
+                    const uptimeText = document.getElementById('uptime');
+                    const errorText = document.getElementById('error');
+
+                    statusText.innerText = data.status;
+                    statusText.className = 'status ' + data.status.toLowerCase();
+                    
+                    // Add the blinking dot
+                    const dotClass = data.status === "Live" ? "dot-live" : "dot-offline";
+                    statusText.innerHTML = `<span class="dot ${dotClass}"></span>` + data.status;
+
+                    uptimeText.innerText = data.uptime;
+                    errorText.innerText = data.error;
+                });
+        }
+
+        // Update every 2 seconds
+        setInterval(updateStatus, 2000);
+        updateStatus();
+    </script>
+</body>
+</html>
