@@ -22,16 +22,27 @@ function startStream() {
 
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
-    const ffmpegProcess = spawn('ffmpeg', [
-        '-re', '-stream_loop', '-1',
-        '-i', 'bg.png',
-        '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '1000k',
-        '-maxrate', '1000k', '-bufsize', '2000k',
-        '-pix_fmt', 'yuv420p', '-g', '50',
-        '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
-        '-f', 'flv', rtmpUrl
-    ]);
-
+const ffmpegProcess = spawn('ffmpeg', [
+    '-loop', '1',               // Loop the input image
+    '-i', 'bg.png',             // Your source image
+    '-f', 'lavfi',              // Use a virtual audio source
+    '-i', 'anullsrc',           // Generate silent audio
+    '-c:v', 'libx264', 
+    '-preset', 'veryfast', 
+    '-tune', 'stillimage',      // Optimization for static images
+    '-pix_fmt', 'yuv420p', 
+    '-s', '1280x720',           // Ensure a standard broadcast resolution
+    '-vb', '1000k', 
+    '-maxrate', '1000k', 
+    '-bufsize', '2000k',
+    '-g', '50',                 // Keyframe interval
+    '-c:a', 'aac', 
+    '-b:a', '128k', 
+    '-ar', '44100',
+    '-shortest',                // Finish if one stream ends (prevents runaway)
+    '-f', 'flv', 
+    rtmpUrl
+]);
     streamStatus = "Live";
 
     // 3. SHOW ALL FFMPEG LOGS (Crucial for debugging)
