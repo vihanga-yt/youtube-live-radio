@@ -18,18 +18,13 @@ function startStream() {
         return;
     }
 
-    // 2. CHECK IF VIDEO FILE EXISTS
-    if (!fs.existsSync('video.mp4')) {
-        lastError = "ERROR: video.mp4 not found in the root directory!";
-        console.error(lastError);
-        return;
-    }
+
 
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
     const ffmpegProcess = spawn('ffmpeg', [
         '-re', '-stream_loop', '-1',
-        '-i', 'video.mp4',
+        '-i', 'bg.png',
         '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '1000k',
         '-maxrate', '1000k', '-bufsize', '2000k',
         '-pix_fmt', 'yuv420p', '-g', '50',
