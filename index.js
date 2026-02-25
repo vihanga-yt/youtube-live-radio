@@ -23,17 +23,22 @@ function startStream() {
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
 const ffmpegProcess = spawn('ffmpeg', [
-    '-re',                                   // Read in real-time
-    '-f', 'lavfi', '-i', 'color=c=black:s=1280x720:r=30', // Solid black background, 720p, 30fps
-    '-f', 'lavfi', '-i', 'anullsrc=cl=stereo:r=44100',    // Required silent audio
-    '-vf', "drawtext=text='YOUR STREAM TEXT HERE':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2", 
+    '-re',                                   // Real-time streaming
+    '-f', 'lavfi', 
+    '-i', 'color=c=black:s=854x480:r=24',    // 480p Background
+    '-stream_loop', '-1',                    // LOOP THE SONG INFINITELY
+    '-i', './song.mp3',                      // Audio file in the same folder
+    '-vf', "drawtext=text='STREAMING NOW':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2",
     '-c:v', 'libx264', 
-    '-preset', 'veryfast', 
+    '-preset', 'ultrafast',                  // Minimum CPU usage
     '-tune', 'stillimage', 
     '-pix_fmt', 'yuv420p', 
-    '-g', '60',                              // Keyframe every 2 seconds
+    '-vb', '500k',                           // Low bitrate for stability
+    '-maxrate', '500k', 
+    '-bufsize', '1000k', 
+    '-g', '48',                              // Keyframe interval (2 seconds at 24fps)
     '-c:a', 'aac', 
-    '-b:a', '128k', 
+    '-b:a', '96k',                           // Efficient audio bitrate
     '-f', 'flv', 
     rtmpUrl
 ]);
