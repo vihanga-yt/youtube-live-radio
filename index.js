@@ -7,7 +7,11 @@ const port = process.env.PORT || 8000;
 
 let streamStatus = "Offline";
 let lastError = "None";
+const mp3Dir = './mp3'; // Your folder name
+const files = fs.readdirSync(mp3Dir).filter(f => f.endsWith('.mp3'));
+const listContent = files.map(f => `file '${path.join(mp3Dir, f)}'`).join('\n');
 
+fs.writeFileSync('playlist.txt', listContent);
 function startStream() {
     const streamKey = process.env.YOUTUBE_KEY;
     
@@ -23,33 +27,35 @@ function startStream() {
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
 const ffmpegProcess = spawn('ffmpeg', [
-    // 1. Generate the background at a fixed rate
+    // 1. Generate Video Background
     '-f', 'lavfi', 
     '-i', 'color=c=black:s=854x480:r=24', 
-    
-    // 2. Loop the song correctly (without -re here to avoid sync issues)
+
+    // 2. Loop the Playlist (The Fix for All Songs)
+    '-f', 'concat', 
+    '-safe', '0', 
     '-stream_loop', '-1', 
-    '-i', './song.mp3', 
-    
-    // 3. The Filter (Text + Video)
-    '-vf', "drawtext=text='Saragaye Looop':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2",
-    
-    // 4. Encoding Settings (Reduced Quality for Stability)
+    '-i', 'playlist.txt', 
+
+    // 3. Filters (Text + Audio Sync)
+    '-vf', "drawtext=text='RADIO STREAMING':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2",
+    '-af', 'aresample=async=1', 
+
+    // 4. Encoding (Optimized for Low Quality/High Stability)
     '-c:v', 'libx264', 
     '-preset', 'ultrafast', 
     '-tune', 'stillimage', 
     '-pix_fmt', 'yuv420p', 
-    '-vb', '800k',            // Slightly higher than 500k to prevent "stutter"
+    '-vb', '800k', 
     '-maxrate', '800k', 
     '-bufsize', '1600k', 
-    '-g', '48',               // Keyframe every 2 seconds
-    
-    // 5. Audio Settings (Crucial for fixing the "doubling" sound)
+    '-g', '48', 
+
+    // 5. Audio Encoding
     '-c:a', 'aac', 
     '-b:a', '128k', 
     '-ar', '44100', 
-    '-af', 'aresample=async=1', // Syncs audio samples to video clock
-    
+
     // 6. Output
     '-f', 'flv', 
     rtmpUrl
