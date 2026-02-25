@@ -2,25 +2,35 @@ const express = require('express');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const http = require('http'); // Used for the self-ping
+const http = require('http');
 const app = express();
 const port = process.env.PORT || 8000;
 
 let streamStatus = "Offline";
 let lastError = "None";
 let ffmpegProcess = null;
+let logs = []; // To store recent logs for the web UI
+const startTime = Date.now(); // To track uptime
+
+// Helper to add logs
+function addLog(message) {
+    const timestamp = new Date().toLocaleTimeString();
+    const logLine = `[${timestamp}] ${message}`;
+    logs.push(logLine);
+    if (logs.length > 20) logs.shift(); // Keep only last 20 lines
+    console.log(logLine);
+}
 
 // ==========================================
-// 1. ANTI-CRASH LOGIC (Crucial for 24/7 uptime)
+// 1. ANTI-CRASH LOGIC
 // ==========================================
 process.on('uncaughtException', (err) => {
-    console.error('CRITICAL ERROR (Uncaught Exception):', err);
+    addLog(`CRITICAL ERROR: ${err.message}`);
     lastError = err.message;
-    // We don't exit the process; we let it keep running
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('CRITICAL ERROR (Unhandled Rejection):', reason);
+process.on('unhandledRejection', (reason) => {
+    addLog(`REJECTION: ${reason}`);
     lastError = String(reason);
 });
 
@@ -31,8 +41,8 @@ function startStream() {
     const streamKey = process.env.YOUTUBE_KEY;
     
     if (!streamKey) {
-        lastError = "ERROR: YOUTUBE_KEY environment variable is missing!";
-        console.error(lastError);
+        lastError = "ERROR: YOUTUBE_KEY missing!";
+        addLog(lastError);
         return;
     }
 
@@ -40,25 +50,19 @@ function startStream() {
     const playlistPath = path.resolve(__dirname, 'playlist.txt');
     
     try {
-        if (!fs.existsSync(mp3Dir)) {
-            fs.mkdirSync(mp3Dir); // Create folder if it doesn't exist to prevent crashes
-        }
-
+        if (!fs.existsSync(mp3Dir)) fs.mkdirSync(mp3Dir);
         const files = fs.readdirSync(mp3Dir).filter(f => f.endsWith('.mp3'));
+        
         if (files.length === 0) {
-            console.error("WARNING: No MP3 files found in the 'mp3' directory. Waiting to start...");
-            setTimeout(startStream, 10000); // Check again in 10 seconds
+            addLog("WARNING: No MP3 files found. Retrying in 10s...");
+            setTimeout(startStream, 10000);
             return;
         }
         
-        const listContent = files.map(f => {
-            const safePath = path.join(mp3Dir, f).replace(/\\/g, '/');
-            return `file '${safePath}'`;
-        }).join('\n');
-        
+        const listContent = files.map(f => `file '${path.join(mp3Dir, f).replace(/\\/g, '/')}'`).join('\n');
         fs.writeFileSync(playlistPath, listContent);
     } catch (err) {
-        console.error("ERROR reading mp3 directory:", err);
+        addLog(`Directory Error: ${err.message}`);
         return;
     }
 
@@ -90,21 +94,24 @@ function startStream() {
     ]);
 
     streamStatus = "Live";
-    console.log("Stream started successfully!");
+    addLog("Stream started successfully!");
 
     ffmpegProcess.stderr.on('data', (data) => {
         const message = data.toString();
-        if (message.toLowerCase().includes("error") || message.toLowerCase().includes("warning")) {
-            console.error(`FFmpeg Log: ${message}`);
-            lastError = message;
+        // Capture only useful info to avoid flooding the logs array
+        if (message.includes("frame=") || message.includes("size=")) {
+            // This is just FFmpeg progress, optional to log
+        } else {
+            addLog(`FFmpeg: ${message.substring(0, 100)}...`);
+            lastError = message.substring(0, 200);
         }
     });
 
     ffmpegProcess.on('close', (code) => {
         streamStatus = "Offline";
-        console.log(`FFmpeg exited with code ${code}. Auto-restarting in 5 seconds...`);
+        addLog(`FFmpeg exited with code ${code}. Restarting in 5s...`);
         ffmpegProcess = null;
-        setTimeout(startStream, 5000); // 24/7 Loop
+        setTimeout(startStream, 5000);
     });
 }
 
@@ -114,46 +121,45 @@ startStream();
 // 3. KOYEB HEALTH & WEB ROUTES
 // ==========================================
 
-// This is the specific route Koyeb needs to verify your app isn't dead
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
+app.get('/health', (req, res) => res.status(200).send('OK'));
 
 app.get('/api/status', (req, res) => {
-    res.json({ status: streamStatus, error: lastError });
+    res.json({ 
+        status: streamStatus, 
+        error: lastError,
+        uptime: Math.floor((Date.now() - startTime) / 1000), // Seconds since start
+        logs: logs // Array of recent logs
+    });
 });
 
 app.get('/', (req, res) => {
-    // Failsafe if index.html is missing
     if (fs.existsSync(path.join(__dirname, 'index.html'))) {
         res.sendFile(path.join(__dirname, 'index.html'));
     } else {
-        res.send(`<h1>Stream Status: ${streamStatus}</h1><p>Last Error: ${lastError}</p>`);
+        res.send(`<h1>Stream: ${streamStatus}</h1><p>Logs: ${logs.join('<br>')}</p>`);
     }
 });
 
 // ==========================================
-// 4. SELF-PINGER (Keeps network active)
+// 4. SELF-PINGER
 // ==========================================
 function keepAlive() {
-    // If you add a custom domain in Koyeb later, replace this URL
-    const url = `https://alleged-venita-estedtgz-fa534a79.koyeb.app/health`; 
+    const url = `https://${process.env.KOYEB_APP_NAME}.koyeb.app/health`; 
     setInterval(() => {
         http.get(url, (res) => {
-            console.log(`[Keep-Alive] Pinged self, status: ${res.statusCode}`);
+            console.log(`[Keep-Alive] Status: ${res.statusCode}`);
         }).on('error', (err) => {
-            console.error('[Keep-Alive] Ping failed:', err.message);
+            console.error('[Keep-Alive] Failed');
         });
-    }, 5 * 60 * 1000); // Pings every 5 minutes
+    }, 5 * 60 * 1000);
 }
 
-app.listen(port, '0.0.0.0', () => { // 0.0.0.0 is strictly required by Koyeb
-    console.log(`Server running on port ${port}`);
+app.listen(port, '0.0.0.0', () => {
+    addLog(`Server running on port ${port}`);
     keepAlive();
 });
 
-// Clean up on exit
-process.on('SIGTERM', () => { // Koyeb uses SIGTERM to stop containers
+process.on('SIGTERM', () => {
     if (ffmpegProcess) ffmpegProcess.kill('SIGTERM');
     process.exit();
 });
