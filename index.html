@@ -1,73 +1,62 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Stream Dashboard</title>
+    <title>Live Radio Monitor</title>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0f0f0f; color: white; padding: 20px; }
-        .card { background: #1a1a1a; padding: 20px; border-radius: 12px; display: inline-block; min-width: 350px; border: 1px solid #333; margin-bottom: 20px; }
-        .status { font-size: 24px; font-weight: bold; }
-        .live { color: #4CAF50; }
-        .offline { color: #f44336; }
-        .dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
-        .dot-live { background-color: #4CAF50; box-shadow: 0 0 10px #4CAF50; animation: blink 1.5s infinite; }
-        .dot-offline { background-color: #f44336; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-        
-        .log-container { 
-            background: #000; color: #00ff00; padding: 15px; border-radius: 8px; 
-            max-width: 600px; margin: 0 auto; text-align: left; 
-            font-family: 'Courier New', monospace; font-size: 13px;
-            border: 1px solid #222; height: 250px; overflow-y: auto;
+        body { font-family: 'Courier New', monospace; background: #0a0a0a; color: #00ff41; padding: 20px; }
+        .stats { background: #111; padding: 15px; border-radius: 5px; border-left: 5px solid #00ff41; margin-bottom: 20px; }
+        #log-container { 
+            background: #000; border: 1px solid #333; height: 500px; 
+            overflow-y: scroll; padding: 10px; font-size: 13px; display: flex; flex-direction: column;
         }
-        h3 { color: #888; margin-top: 30px; }
+        .log-line { margin-bottom: 2px; line-height: 1.4; border-bottom: 1px solid #111; }
+        .time { color: #888; margin-right: 10px; }
+        .error { color: #ff4d4d; }
+        .success { color: #00ff41; font-weight: bold; }
+        .warn { color: #ffcc00; }
+        .status-live { color: #00ff41; text-transform: uppercase; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>YouTube Radio Monitor</h1>
-    
-    <div class="card">
-        <p>Status: <span id="statusText" class="status">Checking...</span></p>
-        <p>Uptime: <span id="uptime">0</span> seconds</p>
-        <p style="font-size: 12px; color: #666;">Last Error: <span id="error">None</span></p>
+    <div class="stats">
+        <h2>RADIO MONITOR :: <span id="status" class="status-live">Checking...</span></h2>
+        <p>UPTIME: <span id="uptime">0</span>s</p>
     </div>
 
-    <h3>Live Logs</h3>
-    <div id="logBox" class="log-container">
-        Waiting for logs...
-    </div>
+    <div id="log-container"></div>
 
     <script>
-        function updateStatus() {
+        const socket = io();
+        const logContainer = document.getElementById('log-container');
+        const statusText = document.getElementById('status');
+        const uptimeText = document.getElementById('uptime');
+
+        // Listen for real-time log pushes
+        socket.on('log-push', (log) => {
+            const div = document.createElement('div');
+            div.className = `log-line ${log.type}`;
+            div.innerHTML = `<span class="time">[${log.time}]</span> <span class="msg">${log.text}</span>`;
+            logContainer.appendChild(div);
+            
+            // Auto-scroll
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // Keep only last 100 lines in DOM for performance
+            if (logContainer.childNodes.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        });
+
+        // Update Uptime every second locally
+        setInterval(() => {
             fetch('/api/status')
-                .then(response => response.json())
+                .then(r => r.json())
                 .then(data => {
-                    const statusText = document.getElementById('statusText');
-                    const uptimeText = document.getElementById('uptime');
-                    const errorText = document.getElementById('error');
-                    const logBox = document.getElementById('logBox');
-
-                    // Update Status & Dot
-                    const dotClass = data.status === "Live" ? "dot-live" : "dot-offline";
-                    statusText.className = 'status ' + data.status.toLowerCase();
-                    statusText.innerHTML = `<span class="dot ${dotClass}"></span>` + data.status;
-
-                    // Update Uptime and Error
+                    statusText.innerText = data.status;
                     uptimeText.innerText = data.uptime;
-                    errorText.innerText = data.error || "None";
-
-                    // Update Logs
-                    if (data.logs && data.logs.length > 0) {
-                        logBox.innerHTML = data.logs.join('<br>');
-                        // Auto-scroll to bottom
-                        logBox.scrollTop = logBox.scrollHeight;
-                    }
-                })
-                .catch(err => console.error("Dashboard update failed", err));
-        }
-
-        // Update every 2 seconds
-        setInterval(updateStatus, 2000);
-        updateStatus();
+                });
+        }, 2000);
     </script>
 </body>
 </html>
