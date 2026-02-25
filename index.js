@@ -14,18 +14,21 @@ const startTime = Date.now();
 let streamStatus = "Offline";
 let ffmpegProcess = null;
 
-// Function to send logs ONLY if they are useful
 function broadcastLog(message, type = 'info') {
     const msg = message.trim();
     if (!msg) return;
 
-    // STRICT FILTER: Ignore the "overread" and decoder spam
-    const isSpam = msg.toLowerCase().includes("overread") || 
-                   msg.toLowerCase().includes("skip -") ||
-                   msg.toLowerCase().includes("last message repeated") ||
-                   msg.toLowerCase().includes("mp3float");
+    // Filter out FFmpeg startup headers and repetitive noise
+    const ignoredPatterns = [
+        "libavutil", "libavcodec", "libavformat", "libavdevice", 
+        "libavfilter", "libswscale", "libswresample", "libpostproc",
+        "metadata", "encoder", "duration", "bitrate", "mapped", 
+        "press [q] to stop", "using /usr/share/fonts", "cpb:", "frame=",
+        "overread", "skip -", "last message repeated", "mp3float"
+    ];
 
-    if (isSpam) return; // Do nothing if it's junk logs
+    const isSpam = ignoredPatterns.some(p => msg.toLowerCase().includes(p));
+    if (isSpam) return;
 
     const logEntry = {
         time: new Date().toLocaleTimeString(),
@@ -50,7 +53,7 @@ function startStream() {
     try {
         const files = fs.readdirSync(mp3Dir).filter(f => f.endsWith('.mp3'));
         if (files.length === 0) {
-            broadcastLog("No MP3 files found in /mp3 folder.", "warn");
+            broadcastLog("No MP3 files found in /mp3.", "warn");
             setTimeout(startStream, 10000);
             return;
         }
@@ -63,17 +66,21 @@ function startStream() {
 
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
-    // Added -loglevel error to reduce noise at the source
+    // FFmpeg arguments fixed for proper mapping and clean output
     ffmpegProcess = spawn('ffmpeg', [
-        '-loglevel', 'info', // Changed from repeat+info to info
-        '-re',
+        '-hide_banner',           // Hides the library versions in logs
+        '-re',                    // Read input in real time
         '-f', 'concat', 
         '-safe', '0', 
-        '-stream_loop', '-1', 
-        '-i', playlistPath, 
+        '-i', playlistPath,       // Input 0 (Audio)
         '-f', 'lavfi', 
-        '-i', 'color=c=black:s=854x480:r=24', 
-        '-vf', "drawtext=text='LIVE RADIO STREAM':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=(h-text_h)/2",
+        '-i', 'color=c=black:s=854x480:r=24', // Input 1 (Video)
+        
+        '-filter_complex', "[1:v]drawtext=text='LIVE RADIO':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=(h-text_h)/2[outv]",
+        
+        '-map', '[outv]',         // Force video from the color input
+        '-map', '0:a',            // Force audio from the playlist
+        
         '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-g', '48', '-vb', '1000k',
         '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
         '-af', 'aresample=async=1', 
@@ -82,17 +89,14 @@ function startStream() {
     ]);
 
     streamStatus = "Live";
-    broadcastLog(">>> Stream is now LIVE on YouTube", "success");
+    broadcastLog(">>> STREAM CONNECTED TO YOUTUBE", "success");
 
     ffmpegProcess.stderr.on('data', (data) => {
         const lines = data.toString().split('\n');
         lines.forEach(line => {
-            // Ignore the frame/fps status lines to keep log clean
-            if (line.includes("frame=") || line.includes("fps=")) return;
-            
             if (line.toLowerCase().includes("error")) {
                 broadcastLog(line, "error");
-            } else if (line.trim().length > 0) {
+            } else {
                 broadcastLog(line, "info");
             }
         });
@@ -100,7 +104,7 @@ function startStream() {
 
     ffmpegProcess.on('close', (code) => {
         streamStatus = "Offline";
-        broadcastLog(`FFmpeg stopped (Code: ${code}). Restarting in 5s...`, "warn");
+        broadcastLog(`FFmpeg stopped (Code: ${code}). Reconnecting...`, "warn");
         setTimeout(startStream, 5000);
     });
 }
@@ -114,5 +118,5 @@ app.get('/api/status', (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', () => {
-    broadcastLog(`Monitor Server active on port ${port}`, "success");
+    broadcastLog(`Monitor dashboard active on port ${port}`, "success");
 });
