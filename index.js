@@ -23,23 +23,23 @@ function startStream() {
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
 const ffmpegProcess = spawn('ffmpeg', [
-    '-loop', '1',               // Loop the input image
-    '-i', 'bg.png',             // Your source image
-    '-f', 'lavfi',              // Use a virtual audio source
-    '-i', 'anullsrc',           // Generate silent audio
+    '-re',                      // READ IN REAL-TIME (Crucial for live streams)
+    '-loop', '1',               // Loop the image
+    '-i', 'bg.png', 
+    '-f', 'lavfi', 
+    '-i', 'anullsrc',           // YouTube requires an audio track
     '-c:v', 'libx264', 
     '-preset', 'veryfast', 
-    '-tune', 'stillimage',      // Optimization for static images
+    '-tune', 'stillimage', 
     '-pix_fmt', 'yuv420p', 
-    '-s', '1280x720',           // Ensure a standard broadcast resolution
-    '-vb', '1000k', 
-    '-maxrate', '1000k', 
-    '-bufsize', '2000k',
-    '-g', '50',                 // Keyframe interval
+    '-g', '60',                 // Keyframe every 2 seconds (YouTube standard)
+    '-vb', '2500k',             // Slightly higher bitrate for stability
+    '-maxrate', '2500k', 
+    '-bufsize', '5000k', 
+    '-r', '30',                 // Force 30 FPS
     '-c:a', 'aac', 
     '-b:a', '128k', 
-    '-ar', '44100',
-    '-shortest',                // Finish if one stream ends (prevents runaway)
+    '-ar', '44100', 
     '-f', 'flv', 
     rtmpUrl
 ]);
