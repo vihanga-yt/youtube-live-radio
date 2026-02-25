@@ -7,31 +7,40 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server); // WebSocket for real-time logs
+const io = new Server(server);
 
 const port = process.env.PORT || 8000;
 const startTime = Date.now();
 let streamStatus = "Offline";
 let ffmpegProcess = null;
 
-// Function to send logs to both Console and Web Dashboard instantly
+// Function to send logs ONLY if they are useful
 function broadcastLog(message, type = 'info') {
+    const msg = message.trim();
+    if (!msg) return;
+
+    // STRICT FILTER: Ignore the "overread" and decoder spam
+    const isSpam = msg.toLowerCase().includes("overread") || 
+                   msg.toLowerCase().includes("skip -") ||
+                   msg.toLowerCase().includes("last message repeated") ||
+                   msg.toLowerCase().includes("mp3float");
+
+    if (isSpam) return; // Do nothing if it's junk logs
+
     const logEntry = {
         time: new Date().toLocaleTimeString(),
-        text: message.trim(),
+        text: msg,
         type: type
     };
-    console.log(`[${logEntry.time}] ${message}`);
-    io.emit('log-push', logEntry); // Push to web dashboard
+
+    console.log(`[${logEntry.time}] ${msg}`);
+    io.emit('log-push', logEntry);
 }
 
-// ==========================================
-// STREAMING LOGIC
-// ==========================================
 function startStream() {
     const streamKey = process.env.YOUTUBE_KEY;
     if (!streamKey) {
-        broadcastLog("CRITICAL: YOUTUBE_KEY is missing!", "error");
+        broadcastLog("YOUTUBE_KEY is missing!", "error");
         return;
     }
 
@@ -41,21 +50,22 @@ function startStream() {
     try {
         const files = fs.readdirSync(mp3Dir).filter(f => f.endsWith('.mp3'));
         if (files.length === 0) {
-            broadcastLog("No MP3s found. Waiting...", "warn");
+            broadcastLog("No MP3 files found in /mp3 folder.", "warn");
             setTimeout(startStream, 10000);
             return;
         }
         const listContent = files.map(f => `file '${path.join(mp3Dir, f).replace(/\\/g, '/')}'`).join('\n');
         fs.writeFileSync(playlistPath, listContent);
     } catch (err) {
-        broadcastLog(`FS Error: ${err.message}`, "error");
+        broadcastLog(`Setup Error: ${err.message}`, "error");
         return;
     }
 
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
-    // Improved FFmpeg args to fix "Invalid data found" (Resampling audio)
+    // Added -loglevel error to reduce noise at the source
     ffmpegProcess = spawn('ffmpeg', [
+        '-loglevel', 'info', // Changed from repeat+info to info
         '-re',
         '-f', 'concat', 
         '-safe', '0', 
@@ -63,46 +73,46 @@ function startStream() {
         '-i', playlistPath, 
         '-f', 'lavfi', 
         '-i', 'color=c=black:s=854x480:r=24', 
-        '-vf', "drawtext=text='LIVE RADIO':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=(h-text_h)/2",
+        '-vf', "drawtext=text='LIVE RADIO STREAM':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=(h-text_h)/2",
         '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-g', '48', '-vb', '1000k',
-        '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', // Force consistent audio
-        '-af', 'aresample=async=1', // Fixes sync/invalid data issues
+        '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
+        '-af', 'aresample=async=1', 
         '-f', 'flv', 
         rtmpUrl
     ]);
 
     streamStatus = "Live";
-    broadcastLog("Stream process started successfully.", "success");
+    broadcastLog(">>> Stream is now LIVE on YouTube", "success");
 
     ffmpegProcess.stderr.on('data', (data) => {
-        const msg = data.toString();
-        // Ignore progress spam, show only errors/status
-        if (!msg.includes("frame=") && !msg.includes("fps=")) {
-            broadcastLog(msg, msg.toLowerCase().includes("error") ? "error" : "info");
-        }
+        const lines = data.toString().split('\n');
+        lines.forEach(line => {
+            // Ignore the frame/fps status lines to keep log clean
+            if (line.includes("frame=") || line.includes("fps=")) return;
+            
+            if (line.toLowerCase().includes("error")) {
+                broadcastLog(line, "error");
+            } else if (line.trim().length > 0) {
+                broadcastLog(line, "info");
+            }
+        });
     });
 
     ffmpegProcess.on('close', (code) => {
         streamStatus = "Offline";
-        broadcastLog(`FFmpeg exited with code ${code}. Restarting...`, "warn");
+        broadcastLog(`FFmpeg stopped (Code: ${code}). Restarting in 5s...`, "warn");
         setTimeout(startStream, 5000);
     });
 }
 
-// Start everything
 startStream();
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/health', (req, res) => res.status(200).send('OK'));
-
-// API for initial state
 app.get('/api/status', (req, res) => {
-    res.json({ 
-        status: streamStatus, 
-        uptime: Math.floor((Date.now() - startTime) / 1000) 
-    });
+    res.json({ status: streamStatus, uptime: Math.floor((Date.now() - startTime) / 1000) });
 });
 
 server.listen(port, '0.0.0.0', () => {
-    broadcastLog(`Monitor Server live on port ${port}`, "success");
+    broadcastLog(`Monitor Server active on port ${port}`, "success");
 });
