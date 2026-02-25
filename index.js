@@ -23,22 +23,34 @@ function startStream() {
     const rtmpUrl = `rtmp://a.rtmp.youtube.com/live2/${streamKey}`;
 
 const ffmpegProcess = spawn('ffmpeg', [
-    '-re',                                   // Real-time streaming
+    // 1. Generate the background at a fixed rate
     '-f', 'lavfi', 
-    '-i', 'color=c=black:s=854x480:r=24',    // 480p Background
-    '-stream_loop', '-1',                    // LOOP THE SONG INFINITELY
-    '-i', './song.mp3',                      // Audio file in the same folder
-    '-vf', "drawtext=text='STREAMING NOW':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2",
+    '-i', 'color=c=black:s=854x480:r=24', 
+    
+    // 2. Loop the song correctly (without -re here to avoid sync issues)
+    '-stream_loop', '-1', 
+    '-i', './song.mp3', 
+    
+    // 3. The Filter (Text + Video)
+    '-vf', "drawtext=text='Saragaye Looop':fontcolor=white:fontsize=32:x=(w-text_w)/2:y=(h-text_h)/2",
+    
+    // 4. Encoding Settings (Reduced Quality for Stability)
     '-c:v', 'libx264', 
-    '-preset', 'ultrafast',                  // Minimum CPU usage
+    '-preset', 'ultrafast', 
     '-tune', 'stillimage', 
     '-pix_fmt', 'yuv420p', 
-    '-vb', '500k',                           // Low bitrate for stability
-    '-maxrate', '500k', 
-    '-bufsize', '1000k', 
-    '-g', '48',                              // Keyframe interval (2 seconds at 24fps)
+    '-vb', '800k',            // Slightly higher than 500k to prevent "stutter"
+    '-maxrate', '800k', 
+    '-bufsize', '1600k', 
+    '-g', '48',               // Keyframe every 2 seconds
+    
+    // 5. Audio Settings (Crucial for fixing the "doubling" sound)
     '-c:a', 'aac', 
-    '-b:a', '96k',                           // Efficient audio bitrate
+    '-b:a', '128k', 
+    '-ar', '44100', 
+    '-af', 'aresample=async=1', // Syncs audio samples to video clock
+    
+    // 6. Output
     '-f', 'flv', 
     rtmpUrl
 ]);
